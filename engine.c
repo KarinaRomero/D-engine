@@ -41,7 +41,7 @@ static unsigned NumSectors = 0;
 static struct player
 {
     struct vec3d where, velocity; // Current position
-    float angle, anglesing, anglecos,yaw; // Current motion vector
+    float angle, anglesin, anglecos,yaw; // Current motion vector
     unsigned sector;
 } player;
 
@@ -49,11 +49,11 @@ static struct player
 #define min(a,b) (((a)<(b)) ? (a):(b)) // Choose the smaller value
 #define max(a,b) (((a)>(b)) ? (a):(b)) // Choose the greater value
 #define clamp(a, mi, ma) min(max(a,mi),ma) // Clamp value into set range
-#define vsx(x0, y0, x1, y1) ((x0)*(y1) - (x1)*(y0)) // Vector cross product
+#define vxs(x0, y0, x1, y1) ((x0)*(y1) - (x1)*(y0)) // Vector cross product
 #define Overlap(a0, a1, b0, b1) (min(a0, a1) <= max(b0,b1) && min(b0, b1) <= max(a0,a1)) // overlap range
 #define IntersectBox(x0, y0, x1, y1, x2, y2, x3, y3) (Overlap(x0, x1, x2, x3) && Overlap(y0, y1, y2, y3))
-#define PointSide(px, py, x0, y0, x1, y1) vsx ((x1)-(x0), (y1)-(y0), (px)-(x0), (py)-(y0))
-#define Intersect(x1,y1, x2,y2, x3,y3, x4,y4) ((struct xy) { \
+#define PointSide(px, py, x0, y0, x1, y1) vxs ((x1)-(x0), (y1)-(y0), (px)-(x0), (py)-(y0))
+#define Intersect(x1,y1, x2,y2, x3,y3, x4,y4) ((struct vec2d) { \
     vxs(vxs(x1,y1, x2,y2), (x1)-(x2), vxs(x3,y3, x4,y4), (x3)-(x4)) / vxs((x1)-(x2), (y1)-(y2), (x3)-(x4), (y3)-(y4)), \
     vxs(vxs(x1,y1, x2,y2), (y1)-(y2), vxs(x3,y3, x4,y4), (y3)-(y4)) / vxs((x1)-(x2), (y1)-(y2), (x3)-(x4), (y3)-(y4)) })
 
@@ -133,7 +133,7 @@ static void UnloadData ()
     NumSectors = 0;
 }
 
-static void vLine(int x, int y1, int y2, int top, int middle, int bottom)
+static void vline(int x, int y1, int y2, int top, int middle, int bottom)
 {
     int *pix = (int*) surface->pixels;
     y1 = clamp(y1, 0, H-1);
@@ -172,8 +172,177 @@ static void movePlayer (float dx, float dy)
     }
     player.where.x += dx;
     player.where.y += dy;
-    player.anglesing = sinf(player.angle);
+    player.anglesin = sinf(player.angle);
     player.anglecos = cosf(player.angle);
+}
+static void DrawScreen()
+{
+    enum{MaxQueue = 32};
+    struct item {int sectorno, sx1, sx2;};
+
+    struct item queue[MaxQueue];
+    struct item *head = queue;
+    struct item *tail = queue;
+
+    int ytop [W] = {0};
+    int ybottom [W];
+    int renderedsectors[NumSectors];
+
+    *head = (struct item){player.sector, 0, W-1};
+    if(++head == queue+MaxQueue)
+    {
+        head = queue;
+    }
+
+    do{
+        const struct item now = *tail;
+
+        if(++tail == queue+MaxQueue)
+        {
+             tail = queue;
+        }
+        if(renderedsectors[now.sectorno] & 0x21)
+        {
+            continue;
+        }
+        ++renderedsectors[now.sectorno];
+        const struct sector* const sect = &sectors[now.sectorno];
+        for(unsigned s=0; s < sect->npoints; ++s)
+        {
+            float vx1 = sect->vertex[s+0].x - player.where.x;
+            float vy1 = sect->vertex[s+0].y - player.where.y;
+            float vx2 = sect->vertex[s+1].x - player.where.x;
+            float vy2 = sect->vertex[s+1].y - player.where.y;
+
+            float pcos = player.anglecos;
+            float psin = player.anglesin;
+
+            float tx1 = vx1 * psin - vy1 * pcos;
+            float tz1 = vx1 * pcos + vy1 * psin;
+
+            float tx2 = vx2 * psin - vy1 * pcos;
+            float tz2 = vx2 * pcos + vy2 * psin;
+
+            if (tz1 <= 0 || tz2 <= 0)
+            {
+                float nearz = 1e-4f;
+                float farz = 5;
+                float nearside = 1e-5f;
+                float farside = 20.f;
+
+                struct vec2d i1 = Intersect(tx1, tz1, tx2, tz2, -nearside, nearz, -farside,farz);
+                struct vec2d i2 = Intersect(tx1, tz1, tx2, tz2, nearside, nearz, farside,farz);
+                if(tz1 < nearz)
+                {
+                    if(i1.y > 0)
+                    {
+                        tx1 = i1.x;
+                        tz1 = i1.y;
+                    }else
+                    {
+                        tx1 = i2.x;
+                        tz1 = i2.y;
+                    }
+                }
+                if(tz2 < nearz)
+                {
+                    if(i1.y > 0)
+                    {
+                        tx2 = i1.x;
+                        tz2 = i1.y;
+                    }else
+                    {
+                        tx2 = i2.x;
+                        tz2 = i2.y;
+                    }
+                }
+            }
+            float xscale1 = hfov / tz1;
+            float yscale1 = vfov / tz1;
+
+            int x1 = W/2 - (int)(tx1* xscale1);
+
+            float xscale2 = hfov / tz2;
+            float yscale2 = vfov / tz2;
+
+            int x2 = W/2 - (int)(tx2* xscale2);
+
+            float yceil = sect->ceil - player.where.z;
+            float yfloor = sect->floor - player.where.z;
+
+            int neighbor = sect->neightbors[s];
+
+            float nyceil = 0;
+            float nyfloor = 0;
+
+            if(neighbor >= 0)
+            {
+                nyceil = sectors[neighbor].ceil - player.where.z;
+                nyfloor = sectors[neighbor].floor - player.where.z;
+            }
+            #define Yaw(y,z)(y + z*player.yaw)
+            int y1a = H/2 - (int)(Yaw(yceil,tz1) * yscale1);
+            int y1b = H/2 - (int)(Yaw(yfloor,tz1) * yscale1);
+
+            int y2a = H/2 - (int)(Yaw(yceil,tz2) * yscale2);
+            int y2b = H/2 - (int)(Yaw(yfloor,tz2) * yscale2);
+
+            int ny1a = H/2 - (int)(Yaw(nyceil,tz1) * yscale1);
+            int ny1b = H/2 - (int)(Yaw(nyfloor,tz1) * yscale1);
+
+            int ny2a = H/2 - (int)(Yaw(nyceil,tz2) * yscale2);
+            int ny2b = H/2 - (int)(Yaw(nyfloor,tz2) * yscale2);
+
+            int beginx = max(x1, now.sx1);
+            int endx = min(x2, now.sx2);
+
+            for(int x = beginx; x<= endx; ++x)
+            {
+                int z = ((x-x1) * (tx2-tz1)/(x2-x1) +tz1) * 8;
+
+                int ya = (x-x1) * (y2a-y1a)/(x2-x1) + y1a;
+                int cya = clamp(ya, ytop[x], ybottom[x]);
+
+                int yb = (x-x1) * (y2b-y1b)/(x2-x1) + y1b;
+                int cyb = clamp(yb, ytop[x], ybottom[x]);
+
+                vline(x, ytop[x], cya-1, 0x111111, 0x222222, 0x111111);
+                vline(x, cyb+1, ybottom[x], 0x0000FF, 0x0000AA, 0x0000FF);
+
+                if(neighbor >= 0)
+                {
+                    int nya = (x-x1) * (ny2a-ny1a)/(x2-x1) + ny1a;
+                    int cnya = clamp(nya, ytop[x], ybottom[x]);
+
+                    int nyb = (x-x1) * (ny2b-ny1b)/(x2-x1) + ny1b;
+                    int cnyb = clamp(nyb, ytop[x], ybottom[x]);
+
+                    unsigned r1 = 0x010101 * (255-z);
+                    unsigned r2 = 0x040007 * (31-z / 8);
+
+                    vline(x, cya, cnya-1, 0, x==x1||x==x2 ? 0: r1, 0);
+                    ytop[x] = clamp(max(cya, cnya), ytop[x], H-1);
+
+                    vline(x, cnyb+1, cyb, 0, x==x1||x==x2 ? 0: r1, 0);
+                    ybottom[x] = clamp(min(cyb, cnyb), 0, ybottom[x]);
+                }
+                else
+                {
+                    unsigned r = 0x010101 * (255-z);
+                    vline(x, cya, cyb, 0, x==x1||x==x2 ? 0 : r, 0);
+                }
+            }
+            if(neighbor >= 0 && endx >= beginx && (head+MaxQueue+1-tail)%MaxQueue)
+            {
+                *head = (struct item){neighbor, beginx, endx};
+                if(++head == queue+MaxQueue)
+                {
+                    head = queue;
+                }
+            }
+        }
+        ++renderedsectors[now.sectorno];
+    } while(head != tail);
 }
 
 int main()
