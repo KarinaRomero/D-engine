@@ -118,8 +118,63 @@ static void LoadData()
     free(vert);
 }
 
+static void UnloadData ()
+{
+    for(unsigned a = 0; a<NumSectors; ++a)
+    {
+        free(sectors[a].vertex);
+    }
+    for(unsigned a = 0; a<NumSectors; ++a)
+    {
+        free(sectors[a].neightbors);
+    }
+    free(sectors);
+    sectors = NULL;
+    NumSectors = 0;
+}
 
+static void vLine(int x, int y1, int y2, int top, int middle, int bottom)
+{
+    int *pix = (int*) surface->pixels;
+    y1 = clamp(y1, 0, H-1);
+    y2 = clamp(y2, 0, H-1);
 
+    if(y2 == y1)
+    {
+        pix[y1*W+x] = middle;
+    } else if(y2 > y1)
+    {
+        pix[y1*W+x] = top;
+        for(int y = y1 + 1; y<y2 ; ++y)
+        {
+            pix[y*W+x] = middle;
+        }
+        pix[y2*W+x] = bottom;
+    }
+}
+
+static void movePlayer (float dx, float dy)
+{
+    float px = player.where.x, py = player.where.y;
+
+    const struct sector* const sect = &sectors[player.sector];
+    const struct vec2d* const vert = sect->vertex;
+
+    for(unsigned s=0; s< sect->npoints; ++s)
+    {
+        if(sect->neightbors[s] >= 0
+        && IntersectBox(px, py, px+dx, py+dy, vert[s+0].x, vert[s+0].y, vert[s+1].x, vert[s+1].y)
+        && PointSide(px+dx, py+dy, vert[s+0].x, vert[s+0].y, vert[s+1].x, vert[s+1].y) < 0)
+        {
+            player.sector = sect->neightbors[s];
+            break;
+        }
+    }
+    player.where.x += dx;
+    player.where.y += dy;
+    player.anglesing = sinf(player.angle);
+    player.anglecos = cosf(player.angle);
+}
 
 int main()
 {
