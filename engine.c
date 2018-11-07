@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-//#include <SDL/SDL.h>
 #include <SDL2/SDL.h>
 
 #undef main
@@ -16,6 +15,7 @@
 #define vfov (.2f * H)   // Affects the vertical field of vision
 
 static SDL_Surface *surface = NULL;
+SDL_Window *gWindow = NULL;
 
 static struct vec2d
 {
@@ -100,7 +100,7 @@ static void LoadData()
             }
             for (n = 0; n < m; ++n)
             {
-                sect->vertex[n] = vert[num[n]];
+                sect->vertex[n+1] = vert[num[n]];
             }
             sect->vertex[0] = sect->vertex[m];
             free(num);
@@ -162,7 +162,9 @@ static void movePlayer(float dx, float dy)
 
     for (unsigned s = 0; s < sect->npoints; ++s)
     {
-        if (sect->neightbors[s] >= 0 && IntersectBox(px, py, px + dx, py + dy, vert[s + 0].x, vert[s + 0].y, vert[s + 1].x, vert[s + 1].y) && PointSide(px + dx, py + dy, vert[s + 0].x, vert[s + 0].y, vert[s + 1].x, vert[s + 1].y) < 0)
+        if (sect->neightbors[s] >= 0
+		&& IntersectBox(px, py, px + dx, py + dy, vert[s + 0].x, vert[s + 0].y, vert[s + 1].x, vert[s + 1].y)
+		&& PointSide(px + dx, py + dy, vert[s + 0].x, vert[s + 0].y, vert[s + 1].x, vert[s + 1].y) < 0)
         {
             player.sector = sect->neightbors[s];
             break;
@@ -191,6 +193,15 @@ static void DrawScreen()
     int ytop[W] = {0};
     int ybottom[W];
     int renderedsectors[NumSectors];
+
+    for(unsigned x=0; x<W; ++x)
+	{
+		ybottom[x] = H-1;
+	}
+    for(unsigned n=0; n<NumSectors; ++n)
+	{
+		renderedsectors[n] = 0;
+	}
 
     *head = (struct item){player.sector, 0, W - 1};
     if (++head == queue + MaxQueue)
@@ -228,6 +239,10 @@ static void DrawScreen()
             float tx2 = vx2 * psin - vy2 * pcos;
             float tz2 = vx2 * pcos + vy2 * psin;
 
+			if(tz1 <= 0 && tz2 <= 0)
+			{
+				continue;
+			}
             if (tz1 <= 0 || tz2 <= 0)
             {
                 float nearz = 1e-4f;
@@ -273,6 +288,11 @@ static void DrawScreen()
             float yscale2 = vfov / tz2;
 
             int x2 = W / 2 - (int)(tx2 * xscale2);
+
+            if(x1 >= x2 || x2 < now.sx1 || x1 > now.sx2)
+            {
+                continue;
+            }
 
             float yceil = sect->ceil - player.where.z;
             float yfloor = sect->floor - player.where.z;
@@ -354,12 +374,17 @@ static void DrawScreen()
 
 int main()
 {
+    if (SDL_Init(SDL_INIT_VIDEO) < 0)
+    {
+        printf("SDL could not initialize! SDL Error: %s\n", SDL_GetError());
+    }
+    gWindow = SDL_CreateWindow("SDL Doom", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, W, H, SDL_WINDOW_SHOWN);
+    if (gWindow == NULL)
+    {
+        printf("Window could not be created! SDL Error: %s\n", SDL_GetError());
+    }
+    surface = SDL_GetWindowSurface(gWindow);
     LoadData();
-    printf("Data Loaded");
-    surface = SDL_SetVideoMode(W, H, 32, 0);
-
-    SDL_EnableKeyRepeat(150, 30);
-    SDL_ShowCursor(SDL_DISABLE);
 
     int wsad[4] = {0, 0, 0, 0};
     int ground = 0;
@@ -369,11 +394,6 @@ int main()
     float yaw = 0;
     for (;;)
     {
-        SDL_LockSurface(surface);
-        DrawScreen();
-        SDL_UnlockSurface(surface);
-        SDL_Flip(surface);
-
         float eyeheight = ducking ? DuckHeight : EyeHeight;
         ground = !falling;
         if (falling)
@@ -471,6 +491,7 @@ int main()
             case SDL_QUIT:
                 goto done;
             }
+        }
             int x, y;
             SDL_GetRelativeMouseState(&x, &y);
             player.angle += x * 0.03f;
@@ -509,19 +530,17 @@ int main()
             {
                 moving = 1;
             }
+
+            SDL_LockSurface(surface);
+            DrawScreen();
+            SDL_UnlockSurface(surface);
+            SDL_UpdateWindowSurface(gWindow);
             SDL_Delay(10);
-        }
     }
 done:
     UnloadData();
+    SDL_DestroyWindow( gWindow );
+    gWindow = NULL;
     SDL_Quit();
     return 0;
 }
-
-/*
-int main()
-{
-    printf("Hello, World!");
-    return 0;
-}
-*/
