@@ -2,27 +2,62 @@
 #include <stdlib.h>
 #include <math.h>
 #include <SDL2/SDL.h>
+#include <assert.h>
+#include <signal.h>
 
-#undef main
-#define W 640
-#define H 480
+#define W2 640 // width of the screen
+#define W 640 // width of the screen
+#define H 480 // height of the game screen
+
 /* Define various vision related constants*/
 #define EyeHeight 6      // carema height from floor when standing
 #define DuckHeight 2.5   // And when crouching
 #define HeadMargin 1     // How much roo there is above camera before the head hits the celling
 #define kneeHeight 2     // How tall obtacles the player can simply walk over withhout jumping
-#define hfov (0.73f * H) // Affects the horizontal field of vision
-#define vfov (.2f * H)   // Affects the vertical field of vision
+#define hfov ( 1.0 * 0.73f * H/W) // Affects the horizontal field of vision
+#define vfov ( 1.0 * .2f)   // Affects the vertical field of vision
 
-static SDL_Surface *surface = NULL;
+#define TextureMapping      1
+#define DepthShadding       0
+#define LightMapping        1
+#define VisibilityTracking   1
+#define SplitScreen         0
+
+/* Utility functions to calculate like a math library */
+#define min(a, b) (((a) < (b)) ? (a) : (b))                                                // Choose the smaller value
+#define max(a, b) (((a) > (b)) ? (a) : (b))                                                // Choose the greater value
+#define abs(a) ((a) < 0 ? -(a) : (a))                                                      // Return the number absolute
+#define clamp(a, mi, ma) min(max(a, mi), ma)                                               // Clamp value into set range
+#define sign(v) (((v) > 0) - ((v) <0))                                                     // Return the sign of a value
+#define vxs(x0, y0, x1, y1) ((x0) * (y1) - (x1) * (y0))                                    // Vector cross product
+#define Overlap(a0, a1, b0, b1) (min(a0, a1) <= max(b0, b1) && min(b0, b1) <= max(a0, a1)) // overlap range
+#define IntersectBox(x0, y0, x1, y1, x2, y2, x3, y3) (Overlap(x0, x1, x2, x3) && Overlap(y0, y1, y2, y3))
+#define PointSide(px, py, x0, y0, x1, y1) sign(vxs((x1) - (x0), (y1) - (y0), (px) - (x0), (py) - (y0)))
+#define Intersect(x1, y1, x2, y2, x3, y3, x4, y4) ((struct vec2d){                                                                     \
+    vxs(vxs(x1, y1, x2, y2), (x1) - (x2), vxs(x3, y3, x4, y4), (x3) - (x4)) / vxs((x1) - (x2), (y1) - (y2), (x3) - (x4), (y3) - (y4)), \
+    vxs(vxs(x1, y1, x2, y2), (y1) - (y2), vxs(x3, y3, x4, y4), (y3) - (y4)) / vxs((x1) - (x2), (y1) - (y2), (x3) - (x4), (y3) - (y4))})
+
+/* Some hard-coded limits */
+#define MaxVertices 100 // Maximun number of vetices in a map
+#define MaxEdges 100 // Maximun number of edges in a sector
+#define MaxQueue 32 // Maximun number of pending portal rensders
+
+#if TextureMapping
+typedef int Texture[1024][1024];
+struct TextureSet {Texture texture, normalmap, lightmap, lightmap_diffuseonly;};
+#endif
+
+/* To render the video */
 SDL_Window *gWindow = NULL;
+static SDL_Surface *surface = NULL;
 
-static struct vec2d
+
+struct vec2d
 {
     float x;
     float y;
 };
-static struct vec3d
+struct vec3d
 {
     float x;
     float y;
@@ -33,30 +68,56 @@ static struct sector
 {
     float floor, ceil;
     struct vec2d *vertex;
-    signed char *neightbors;
+    signed char *neighbors;
     unsigned int npoints;
+#if VisibilityTracking
+    int visible;
+#endif
+
+#if TextureMapping
+    struct TextureSet *floortexture;
+    struct TextureSet *ceiltexture;
+    struct TextureSet *uppertextures;
+    struct TextureSet *lowertextures;
+#endif
 } *sectors = NULL;
 static unsigned NumSectors = 0;
-/*Location of the player*/
 
+#if VisibilityTracking
+    #define MaxVisibleSectors 256
+    struct vec2d VisibleFloorBegins[MaxVisibleSectors][W];
+    struct vec2d VisibleFloorEnds[MaxVisibleSectors][W];
+
+    char VisibleFloors[MaxVisibleSectors][W];
+
+    struct vec2d VisibleCeilBegins[MaxVisibleSectors][W];
+    struct vec2d VisibleCeilEnds[MaxVisibleSectors][W];
+
+    char VisibleCeils[MaxVisibleSectors][W];
+
+    unsigned NumVisibleSectors = 0;
+#endif
+
+/*Location of the player*/
 static struct player
 {
     struct vec3d where, velocity;         // Current position
     float angle, anglesin, anglecos, yaw; // Current motion vector
-    unsigned sector;
+    unsigned char sector;
 } player;
 
-// Utility functions to calculate like a math library
-#define min(a, b) (((a) < (b)) ? (a) : (b))                                                // Choose the smaller value
-#define max(a, b) (((a) > (b)) ? (a) : (b))                                                // Choose the greater value
-#define clamp(a, mi, ma) min(max(a, mi), ma)                                               // Clamp value into set range
-#define vxs(x0, y0, x1, y1) ((x0) * (y1) - (x1) * (y0))                                    // Vector cross product
-#define Overlap(a0, a1, b0, b1) (min(a0, a1) <= max(b0, b1) && min(b0, b1) <= max(a0, a1)) // overlap range
-#define IntersectBox(x0, y0, x1, y1, x2, y2, x3, y3) (Overlap(x0, x1, x2, x3) && Overlap(y0, y1, y2, y3))
-#define PointSide(px, py, x0, y0, x1, y1) vxs((x1) - (x0), (y1) - (y0), (px) - (x0), (py) - (y0))
-#define Intersect(x1, y1, x2, y2, x3, y3, x4, y4) ((struct vec2d){                                                                     \
-    vxs(vxs(x1, y1, x2, y2), (x1) - (x2), vxs(x3, y3, x4, y4), (x3) - (x4)) / vxs((x1) - (x2), (y1) - (y2), (x3) - (x4), (y3) - (y4)), \
-    vxs(vxs(x1, y1, x2, y2), (y1) - (y2), vxs(x3, y3, x4, y4), (y3) - (y4)) / vxs((x1) - (x2), (y1) - (y2), (x3) - (x4), (y3) - (y4))})
+#if LightMapping
+
+struct light
+{
+    struct vec3d where;
+    struct vec3d light;
+    unsigned char sector;
+};
+static struct light *lights = NULL;
+static unsigned NumLights = 0;
+
+#endif
 
 static void LoadData()
 {
@@ -67,54 +128,86 @@ static void LoadData()
         exit(1);
     }
     char buf[256], word[256], *ptr;
-    struct vec2d *vert = NULL, v;
-    int n, m, NumVertices = 0;
+    struct vec2d vertex [MaxVertices];
+    struct vec2d *vertexptr = vertex;
+    float x;
+    float y;
+    float angle;
+    float number;
+    float numbers[MaxEdges];
+    int n;
+    int m;
     while (fgets(buf, sizeof buf, fp))
     {
         switch (sscanf(ptr = buf, "%32s%n", word, &n) == 1 ? word[0] : '\0')
         {
         case 'v':
-            for (sscanf(ptr += n, "%f%n", &v.y, &n); sscanf(ptr += n, "%f%n", &v.x, &n) == 1;)
+            for (sscanf(ptr += n, "%f%n", &y, &n); sscanf(ptr += n, "%f%n", &x, &n) == 1;)
             {
-                vert = realloc(vert, ++NumVertices * sizeof(*vert));
-                vert[NumVertices - 1] = v;
+                if(vertexptr >= vertex+MaxVertices)
+                {
+                    fprintf(stderr, "Error: To may vertices, limit is %u\n", MaxVertices);
+                    exit(2);
+                }
+                *vertexptr++ = (struct vec2d){x,y};
             }
             break;
         case 's':
             sectors = realloc(sectors, ++NumSectors * sizeof(*sectors));
             struct sector *sect = &sectors[NumSectors - 1];
-            int *num = NULL;
+
             sscanf(ptr += n, "%f%f%n", &sect->floor, &sect->ceil, &n);
             for (m = 0; sscanf(ptr += n, "%32s%n", word, &n) == 1 && word[0] != '#';)
             {
-                num = realloc(num, ++m * sizeof(*num));
-                num[m - 1] = word[0] == 'x' ? -1 : atoi(word);
+                if(m >= MaxEdges)
+                {
+                    fprintf(stderr, "Error: To may edges in sector %u, limit is %u\n", NumSectors-1, MaxEdges);
+                    exit(2);
+                }
+                numbers[m++] = word[0] = 'x' ? -1 : strtof(word, 0);
             }
             sect->npoints = m /= 2;
-            sect->neightbors = malloc((m) * sizeof(*sect->neightbors));
+            sect->neighbors = malloc((m) * sizeof(*sect->neighbors));
             sect->vertex = malloc((m + 1) * sizeof(*sect->vertex));
+
+#if VisibilityTracking
+            sect->visible = 0;
+#endif
 
             for (n = 0; n < m; ++n)
             {
-                sect->neightbors[n] = num[m + n];
+                sect->neighbors[n] = numbers[m + n];
             }
             for (n = 0; n < m; ++n)
             {
-                sect->vertex[n+1] = vert[num[n]];
+                int v = numbers[n];
+                if(v >= vertexptr-vertex)
+                {
+                    fprintf(stderr, "Error: Invalid vertex number %d, in sector %u; only have%u\n", v, NumSectors-1, (int)(vertexptr-vertex));
+                    exit(2);
+                }
+                sect->vertex[n+1] = vertex[m];
             }
             sect->vertex[0] = sect->vertex[m];
-            free(num);
             break;
-        case 'p':;
-            float angle;
-            sscanf(ptr += n, "%f %f %f %d", &v.x, &v.y, &angle, &n);
+#if LightMapping
+            case 'l':
+                lights = realloc(lights, ++NumLights * sizeof(*lights));
+                struct light* light = &lights[NumLights-1];
+                sscanf(ptr += n, "%f %f %f %f %f %f %f", &light->where.x, &light->where.z, &light->where.y, &number, &light->light.x, &light->light.y, &light->light.z);
+                light->sector = (int)number;
+            break;
+#endif
+        case 'p':
+            sscanf(ptr += n, "%f %f %f %f", &x, &y, &angle, &number);
             player = (struct player){
-                {v.x, v.y, 0}, {0, 0, 0}, angle, 0, 0, 0, n};
+                {x, y, 0}, {0, 0, 0}, angle, 0, 0, 0, number};
             player.where.z = sectors[player.sector].floor + EyeHeight;
+            player.anglesin = sinf(player.angle);
+            player.anglecos = cosf(player.angle);
         }
     }
     fclose(fp);
-    free(vert);
 }
 
 static void UnloadData()
@@ -122,10 +215,7 @@ static void UnloadData()
     for (unsigned a = 0; a < NumSectors; ++a)
     {
         free(sectors[a].vertex);
-    }
-    for (unsigned a = 0; a < NumSectors; ++a)
-    {
-        free(sectors[a].neightbors);
+        free(sectors[a].neighbors);
     }
     free(sectors);
     sectors = NULL;
@@ -162,11 +252,11 @@ static void movePlayer(float dx, float dy)
 
     for (unsigned s = 0; s < sect->npoints; ++s)
     {
-        if (sect->neightbors[s] >= 0
+        if (sect->neighbors[s] >= 0
 		&& IntersectBox(px, py, px + dx, py + dy, vert[s + 0].x, vert[s + 0].y, vert[s + 1].x, vert[s + 1].y)
 		&& PointSide(px + dx, py + dy, vert[s + 0].x, vert[s + 0].y, vert[s + 1].x, vert[s + 1].y) < 0)
         {
-            player.sector = sect->neightbors[s];
+            player.sector = sect->neighbors[s];
             break;
         }
     }
@@ -177,10 +267,6 @@ static void movePlayer(float dx, float dy)
 }
 static void DrawScreen()
 {
-    enum
-    {
-        MaxQueue = 32
-    };
     struct item
     {
         int sectorno, sx1, sx2;
@@ -297,7 +383,7 @@ static void DrawScreen()
             float yceil = sect->ceil - player.where.z;
             float yfloor = sect->floor - player.where.z;
 
-            int neighbor = sect->neightbors[s];
+            int neighbor = sect->neighbors[s];
 
             float nyceil = 0;
             float nyfloor = 0;
@@ -433,8 +519,8 @@ int main()
             {
                 if (IntersectBox(px, py, px + dx, py + dy, vert[s + 0].x, vert[s + 0].y, vert[s + 1].x, vert[s + 1].y) && PointSide(px + dx, py + dy, vert[s + 0].x, vert[s + 0].y, vert[s + 1].x, vert[s + 1].y) < 0)
                 {
-                    float hole_low = sect->neightbors[s] < 0 ? 9e9 : max(sect->floor, sectors[sect->neightbors[s]].floor);
-                    float hole_high = sect->neightbors[s] < 0 ? -9e9 : min(sect->ceil, sectors[sect->neightbors[s]].ceil);
+                    float hole_low = sect->neighbors[s] < 0 ? 9e9 : max(sect->floor, sectors[sect->neighbors[s]].floor);
+                    float hole_high = sect->neighbors[s] < 0 ? -9e9 : min(sect->ceil, sectors[sect->neighbors[s]].ceil);
 
                     if (hole_high < player.where.z + HeadMargin || hole_low > player.where.z - eyeheight + kneeHeight)
                     {
