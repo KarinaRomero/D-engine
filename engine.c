@@ -68,7 +68,7 @@ static struct sector
 {
     float floor, ceil;
     struct vec2d *vertex;
-    unsigned int npoints;
+    unsigned short npoints;
     signed char *neighbors;
 #if VisibilityTracking
     int visible;
@@ -119,7 +119,7 @@ static unsigned NumLights = 0;
 
 #endif
 
-static void LoadData()
+static void LoadData(void)
 {
     FILE *fp = fopen("m.txt", "rt");
     if (!fp)
@@ -137,7 +137,7 @@ static void LoadData()
     float numbers[MaxEdges];
     int n;
     int m;
-    while (fgets(buf, sizeof buf, fp))
+    while (fgets(buf, sizeof(buf), fp))
     {
         switch (sscanf(ptr = buf, "%32s%n", word, &n) == 1 ? word[0] : '\0')
         {
@@ -164,7 +164,7 @@ static void LoadData()
                     fprintf(stderr, "Error: To may edges in sector %u, limit is %u\n", NumSectors-1, MaxEdges);
                     exit(2);
                 }
-                numbers[m++] = word[0] = 'x' ? -1 : strtof(word, 0);
+                numbers[m++] = word[0] == 'x' ? -1 : strtof(word, 0);
             }
             sect->npoints = m /= 2;
             sect->neighbors = malloc((m) * sizeof(*sect->neighbors));
@@ -186,7 +186,7 @@ static void LoadData()
                     fprintf(stderr, "Error: Invalid vertex number %d, in sector %u; only have%u\n", v, NumSectors-1, (int)(vertexptr-vertex));
                     exit(2);
                 }
-                sect->vertex[n+1] = vertex[m];
+                sect->vertex[n+1] = vertex[v];
             }
             sect->vertex[0] = sect->vertex[m];
             break;
@@ -210,7 +210,7 @@ static void LoadData()
     fclose(fp);
 }
 
-static void UnloadData()
+static void UnloadData(void)
 {
     for (unsigned a = 0; a < NumSectors; ++a)
     {
@@ -262,7 +262,7 @@ static int Scaler_Next(struct Scaler* i)
 static int LoadTexture(void)
 {
     int initialized = 0;
-    int fd = open("engine_textures.bin", O_RDWR | O_CREAT, 0644);
+    int fd = open("engine_textures.bin", O_RDWR | O_CREAT, 0664);
     if(lseek(fd, 0, SEEK_END) == 0)
     {
 InitializeTextures:;
@@ -285,17 +285,17 @@ InitializeTextures:;
         Texture dummylightmap;
         memset(&dummylightmap, 0, sizeof(dummylightmap));
 
-        LoadTexture("wall2.ppm", WallTexture);
-        LoadTexture("wall2_norm.ppm", WallNormal);
+        LoadTexture("./textures/wall2.ppm", WallTexture);
+        LoadTexture("./textures/wall2_norm.ppm", WallNormal);
 
-        LoadTexture("wall3.ppm", WallTexture2);
-        LoadTexture("wall3_norm.ppm", WallNormal2);
+        LoadTexture("./textures/wall3.ppm", WallTexture2);
+        LoadTexture("./textures/wall3_norm.ppm", WallNormal2);
 
-        LoadTexture("floor2.ppm", FloorTexture);
-        LoadTexture("floor2_norm.ppm", FloorNormal);
+        LoadTexture("./textures/floor2.ppm", FloorTexture);
+        LoadTexture("./textures/floor2_norm.ppm", FloorNormal);
 
-        LoadTexture("ceil2.ppm", CeilTexture);
-        LoadTexture("ceil2_norm.ppm", CeilNormal);
+        LoadTexture("./textures/ceil2.ppm", CeilTexture);
+        LoadTexture("./textures/ceil2_norm.ppm", CeilNormal);
 
         #define SafeWrite(fd, buf, amount) do{ \
             const char* source = (const char*)(buf); \
@@ -363,7 +363,7 @@ InitializeTextures:;
         perror("mmap");
     }
 
-    printf("Loading testures\n");
+    printf("Loading textures\n");
     off_t pos =0;
     for(unsigned n=0; n<NumSectors; ++n)
     {
@@ -390,7 +390,7 @@ InitializeTextures:;
 
 #if LightMapping
 #define vlen(x, y, z) sqrtf((x)*(x) + (y)*(y) + (z)*(z))
-#define vlen2(x0, y0, z0, x1, y1, z1) vlen((x1)-(x0), (y1)-(y1), (z1)-(z0))
+#define vlen2(x0, y0, z0, x1, y1, z1) vlen((x1)-(x0), (y1)-(y0), (z1)-(z0))
 #define vdot3(x0, y0, z0, x1, y1, z1) ((x0)*(x1) + (y0)*(y1) + (z0)*(z1))
 #define vxs3(x0, y0, z0, x1, y1, z1) (struct vec3d){vxs(y0, z0, y1, z1), vxs(z0, x0,z1, x1), vxs(x0, y0,x1,y1)}
 
@@ -405,7 +405,7 @@ struct Intersection
 
 static int ClampWithDesaturation(int r, int g, int b)
 {
-    int luma = r*299 + g*587 + b+114;
+    int luma = r*299 + g*587 + b*114;
     if(luma > 255000)
     {
         r=g=b=255;
@@ -417,7 +417,7 @@ static int ClampWithDesaturation(int r, int g, int b)
     else
     {
         double sat = 1000;
-        if(r<255)
+        if(r>255)
         {
             sat= min(sat, (luma-255e3) / (luma-r));
 
@@ -426,7 +426,7 @@ static int ClampWithDesaturation(int r, int g, int b)
         {
             sat= min(sat, luma/(double)(luma-r));
         }
-        if(g<255)
+        if(g>255)
         {
             sat= min(sat, (luma-255e3) / (luma-g));
 
@@ -435,7 +435,7 @@ static int ClampWithDesaturation(int r, int g, int b)
         {
             sat= min(sat, luma/(double)(luma-g));
         }
-        if(b<255)
+        if(b>255)
         {
             sat= min(sat, (luma-255e3) / (luma-b));
 
@@ -571,7 +571,7 @@ rescan:;
         if(sect->neighbors[s] >= 0)
         {
             hole_low = max(sect->floor, sectors[sect->neighbors[s]].floor);
-            hole_high = max(sect->ceil, sectors[sect->neighbors[s]].ceil);
+            hole_high = min(sect->ceil, sectors[sect->neighbors[s]].ceil);
         }
         if(y >= hole_low && y <= hole_high)
         {
@@ -598,7 +598,7 @@ rescan:;
         {
             goto hit_floor;
         }
-        if(y < sect->ceil)
+        if(y > sect->ceil)
         {
             goto hit_ceil;
         }
@@ -614,7 +614,7 @@ rescan:;
         result->normal = (struct vec3d){nx/len, 0, nz/len};
 
         nx = vx2-vx1;
-        nz = vy1-vy2;
+        nz = vy2-vy1;
         len = sqrtf(nx*nx + nz*nz);
 
         tangent = (struct vec3d)(struct vec3d){nx/len, 0, nz/len};
@@ -686,7 +686,7 @@ close_enough:;
 #define area_light_radius 0.4
 #define nrandomvectors 128
 #define firstround 1
-#define masxrounds 100
+#define maxrounds 100
 #define fade_distance_diffuse 10.0
 #define fade_distance_radiosity 10.0
 #define radiomul 1.0
@@ -724,7 +724,7 @@ static void DiffuseLightCalculation(struct vec3d normal, struct vec3d tangent, s
             towards.z *= invlen;
 
             float cosine = vdot3(perturbed_normal.x, perturbed_normal.y, perturbed_normal.z, towards.x, towards.y, towards.z);
-            float power = cosine / (1.f + pow(len / fade_distance_diffuse, 2.0f));
+            float power = cosine / (1.f + HAVE_POWF(len / fade_distance_diffuse, 2.0f));
             power /= (float) narealightcomponents;
             if (power > 1e-7f)
             {
@@ -753,7 +753,7 @@ static void RadiosityCalculation(struct vec3d normal, struct vec3d tangent, stru
     // Take the last round´s light value from that lication.
     struct vec3d source = {point_in_wall.x + normal.x * 1e-3f,
                             point_in_wall.y + normal.y * 1e-3f,
-                            point_in_wall.z + normal.z * 1e-3f,};
+                            point_in_wall.z + normal.z * 1e-3f};
 
     float basepower = radiomul / nrandomvectors;
 
@@ -858,7 +858,7 @@ static void End_Diffuse(struct TextureSet* set)
 
 static void BuildLightmaps(void)
 {
-    for(unsigned round = firstround; round <= masxrounds; ++round)
+    for(unsigned round = firstround; round <= maxrounds; ++round)
     {
         fprintf(stderr, "Lighting calculation, round %u...\n", round);
 #ifndef _OPENMP
@@ -1002,19 +1002,19 @@ static void BuildLightmaps(void)
 
                         if(sect->neighbors[s] >= 0)
                         {
-                            float hole_low = max( sect->floor, sectors[sect->neighbors[s]].floor);
-                            float hole_high = min( sect->ceil, sectors[sect->neighbors[s]].ceil);
+                            hole_low = max( sect->floor, sectors[sect->neighbors[s]].floor);
+                            hole_high = min( sect->ceil, sectors[sect->neighbors[s]].ceil);
                         }
 
                         if(round == 1)
                         {
                             // Round 1
-                            struct Scaler txtx_int = Scaler_Init(0, 0, 1023, vert[s].x*327668, vert[s].x*327668);
-                            struct Scaler txtz_int = Scaler_Init(0, 0, 1023, vert[s].y*327668, vert[s].y*327668);
+                            struct Scaler txtx_int = Scaler_Init(0, 0, 1023, vert[s].x*32768, vert[s+1].x*32768);
+                            struct Scaler txtz_int = Scaler_Init(0, 0, 1023, vert[s].y*32768, vert[s+1].y*32768);
                             for(unsigned x = 0; x<1024; ++x)
                             {
-                                float txtx = Scaler_Next(&txtx_int)/327668.f;
-                                float txtz = Scaler_Next(&txtz_int)/327668.f;
+                                float txtx = Scaler_Next(&txtx_int)/32768.f;
+                                float txtz = Scaler_Next(&txtz_int)/32768.f;
 
                                 fprintf(stderr, "- Sector %u Wall %u/%u %u/%U diffuse light...\r", sectorno+1, s+1, sect->npoints, x, 1024);
 
@@ -1035,6 +1035,7 @@ static void BuildLightmaps(void)
                                     DiffuseLightCalculation(normal, tangent, bittangent, texture, x, y, x, y, point_in_wall, sectorno);
                                 OMP_SCALER_LOOP_END();
                             }
+                            End_Diffuse(&sect->uppertextures[s]);
                             End_Diffuse(&sect->lowertextures[s]);
                         }
                         else
@@ -1043,13 +1044,13 @@ static void BuildLightmaps(void)
                             Begin_Radiosity(&sect->lowertextures[s]);
 
                             // Round 2+: Radiosity
-                            struct Scaler txtx_int = Scaler_Init(0, 0, 1023, vert[s].x*327668, vert[s].x*327668);
-                            struct Scaler txtz_int = Scaler_Init(0, 0, 1023, vert[s].y*327668, vert[s].y*327668);
+                            struct Scaler txtx_int = Scaler_Init(0, 0, 1023, vert[s].x*32768, vert[s+1].x*32768);
+                            struct Scaler txtz_int = Scaler_Init(0, 0, 1023, vert[s].y*32768, vert[s+1].y*32768);
 
                             for(unsigned x = 0; x<1024; ++x)
                             {
-                                float txtx = Scaler_Next(&txtx_int)/327668.f;
-                                float txtz = Scaler_Next(&txtz_int)/327668.f;
+                                float txtx = Scaler_Next(&txtx_int)/32768.f;
+                                float txtz = Scaler_Next(&txtz_int)/32768.f;
 
                                 fprintf(stderr, "- Sector %u Wall %u/%u %u/%U radiosity...\r", sectorno+1, s+1, sect->npoints, x, 1024);
 
@@ -1168,7 +1169,7 @@ static void line(float x0, float y0, float x1, float y1, int color)
     // handle second endpoint
     xend = (int)(x1 + 0.5f);
     yend = y1 + gradient * (xend - x1);
-    xgap = fpart(x1 - 0.5f);
+    xgap = fpart(x1 + 0.5);
     int xpxl2 = xend;
     int ypxl2 = (int)yend;
 
@@ -1272,7 +1273,7 @@ static void BloomPostprocess(void)
         int color = (((int)clamp(rsum, 0, 255)) << 16)
                     + (((int)clamp(gsum, 0, 255)) << 8)
                     + (((int)clamp(bsum, 0, 255)) << 0);
-        pix[y*W2+x] = x;
+        pix[y*W2+x] = color;
         }
     }
 }
@@ -1285,7 +1286,7 @@ static void fillpolygon(const struct sector* sect, int color)
     float square = min(W/20.f/0.8, H/29.f);
     float X = (W2-W)/20.f;
     float Y = square;
-    float X0 = W+x*1.f;
+    float X0 = W+X*1.f;
     float Y0 = (H-28*square)/2;
 #else
     float square = min(W/20.f/0.8, H/29.f);
@@ -1376,7 +1377,7 @@ static void DrawMap(void)
 #else
     for(unsigned y = 0; y<H; ++y)
         {
-            memset((char*)surface->pixels + (y*W2+W)*4, 0, (W)*4);
+            memset((char*)surface->pixels + (y*W2)*4, 0, (W)*4);
         }
 #endif
 
@@ -1397,7 +1398,7 @@ static void DrawMap(void)
     {
         line(X0+x*X, Y0+0*Y, X0+x*X, Y0+28*Y, 0x002200);
     }
-    for(float y = 0; y<=18; ++y)
+    for(float y = 0; y<=28; ++y)
     {
         line(X0+0*X, Y0+y*Y, X0+18*X, Y0+y*Y, 0x002200);
     }
@@ -1514,7 +1515,7 @@ static int vert_compare(const struct vec2d* a, const struct vec2d* b)
     }
     return (a->x - b->x) * 1e3;
 }
-
+/**
 // Verify map for consistencies
 static void VerifyMap(void)
 {
@@ -1531,7 +1532,7 @@ Rescan:
     }
     for(unsigned a = 0; a < NumSectors; ++a)
     {
-        const struct sector* const sect = &sectors[a];
+        const struct sector* sect = &sectors[a];
         const struct vec2d* const vert = sect->vertex;
 
         for(unsigned b = 0; b < sect->npoints; ++b)
@@ -1556,14 +1557,14 @@ Rescan:
                     {
                         if(neigh->neighbors[c] != (int)a)
                         {
-                            fprintf(stderr, "Sector %d: Neighbor behind line (%g,%g)-(%g,%g) should be %u, %d found instead. Fixing.\n", d, point2.x, point2.y, point1.x, point1.y, a, sect->neighbors[c]);
+                            fprintf(stderr, "Sector %d: Neighbor behind line (%g,%g)-(%g,%g) should be %u, %d found instead. Fixing 1.\n", d, point2.x, point2.y, point1.x, point1.y, a, neigh->neighbors[c]);
                             neigh->neighbors[c] = a;
                             goto Rescan;
                         }
                         if(sect->neighbors[b] != (int)d)
                         {
-                            fprintf(stderr, "Sector %d: Neighbor behind line (%g,%g)-(%g,%g) should be %u, %d found instead. Fixing.\n", a, point2.x, point2.y, point1.x, point1.y, d, sect->neighbors[b]);
-                            neigh->neighbors[b] = d;
+                            fprintf(stderr, "Sector %u: Neighbor behind line (%g,%g)-(%g,%g) should be %u, %d found instead. Fixing 2.\n",  a, point1.x,point1.y, point2.x,point2.y, d, sect->neighbors[b]);
+                            sect->neighbors[b] = d;
                             goto Rescan;
                         }
                         else
@@ -1646,7 +1647,7 @@ Rescan:
                         break;
                     }
                 }
-                if(ok)
+                if(!ok)
                 {
                     continue;
                 }
@@ -1729,6 +1730,232 @@ Rescan:
         }
     }
     printf("%d sectors.\n", NumSectors);
+}**/
+
+// Verify map for consistencies
+static void VerifyMap(void)
+{
+Rescan:
+    for(unsigned a = 0; a < NumSectors; ++a)
+    {
+        const struct sector* const sect = &sectors[a];
+        const struct vec2d* const vert = sect->vertex;
+
+        if(vert[0].x != vert[sect->npoints].x || vert[0].y != vert[sect->npoints].y)
+        {
+            fprintf(stderr, "Internal error: Sector %u: Vertexes don't form a loop!\n", a);
+        }
+    }
+
+    // Verify that each edge that has a neighbor, the neighbor
+    // has this same neighbor.
+    for(unsigned a = 0; a < NumSectors; ++a)
+    {
+        const struct sector* sect = &sectors[a];
+        const struct vec2d* const vert = sect->vertex;
+        for(unsigned b = 0; b < sect->npoints; ++b)
+        {
+            if(sect->neighbors[b] >= (int)NumSectors)
+            {
+                fprintf(stderr, "Sector %u: Contains neighbor %d (too large, number of sectors is %u)\n", a, sect->neighbors[b], NumSectors);
+            }
+
+            struct vec2d point1 = vert[b], point2 = vert[b+1];
+
+            int found = 0;
+            for(unsigned d = 0; d < NumSectors; ++d)
+            {
+                const struct sector* const neigh = &sectors[d];
+                for(unsigned c = 0; c < neigh->npoints; ++c)
+                {
+                    if(neigh->vertex[c+1].x == point1.x
+                    && neigh->vertex[c+1].y == point1.y
+                    && neigh->vertex[c+0].x == point2.x
+                    && neigh->vertex[c+0].y == point2.y)
+                   {
+                       if(neigh->neighbors[c] != (int)a)
+                       {
+                            fprintf(stderr, "Sector %d: Neighbor behind line (%g,%g)-(%g,%g) should be %u, %d found instead. Fixing\n",
+                                    d, point2.x, point2.y, point1.x, point1.y, a, neigh->neighbors[c]);
+                            neigh->neighbors[c] = a;
+                            goto Rescan;
+                       }
+
+                       if(sect->neighbors[b] != (int)d)
+                       {
+                            fprintf(stderr, "Sector %u: Neighbor behind line (%g,%g)-(%g,%g) shoul be %u, %d found instead. Fixing \n",
+                                    a, point1.x, point1.y, point2.x, point2.y, d, sect->neighbors[b]);
+                            sect->neighbors[b] = d;
+                            goto Rescan;
+                       }
+                       else
+                       {
+                           ++found;
+                       }
+                   }
+                }
+            }
+
+            if(sect->neighbors[b]>=0 && sect->neighbors[b] < (int)NumSectors && found != 1)
+            {
+                fprintf(stderr, "Sectors %u and its neighbor %d don't share line (%g,%g)-(%g,%g)\n",
+                        a, sect->neighbors[b], point1.x, point1.y, point2.x, point2.y);
+            }
+        }
+    }
+
+    // Verify that the vertexes from convex hull.
+    for(unsigned a = 0; a < NumSectors; ++a)
+    {
+        struct sector* sect = &sectors[a];
+        const struct vec2d* const vert = sect->vertex;
+        for(unsigned b = 0; b < sect->npoints; ++b)
+        {
+            unsigned c = (b+1) % sect->npoints, d = (b+2) & sect->npoints;
+            float x0 = vert[b].x;
+            float y0 = vert[b].y;
+            float x1 = vert[c].x;
+            float y1 = vert[c].y;
+
+            switch(PointSide(vert[d].x, vert[d].y, x0, y0, x1, y1))
+            {
+                case 0:
+                    continue;
+                    if(sect->neighbors[b] == sect->neighbors[c])
+                        continue;
+                    fprintf(stderr, "Sector %u: Edges %u-%u and %u-%u are parallel, but have different neighbors. This would pose problems for collision detections.\n",
+                            a, b, c, c, d);
+                    break;
+                case -1:
+                    fprintf(stderr, "Sector %u: Edges %u-%u and %u-%u create a concave turn. This would be rendered wrong.\n",
+                            a, b, c, c, d);
+                    break;
+                default: // All good :D
+                    continue;
+            }
+
+            fprintf(stderr, "- Splitting sector, using (%g,%g) as anchor", vert[c].x, vert[c].y);
+
+            // Insert and edge between (c) and (e),
+            // where e is the nearest point to (c), under the following rules:
+            // e cannot be c, c-1 or c+1
+            // line (c)-(e) cannot intersect with any edge in this sector
+            float nearest_dist          = 1e29f;
+            unsigned nearest_point      = ~0u;
+            for(unsigned n = (d+1) % sect->npoints; n != b; n = (n+1) % sect->npoints)
+            {
+                float x2 = vert[n].x;
+                float y2 = vert[n].y;
+                float distx = x2-x1;
+                float disty = y2-y1;
+                float dist = distx*distx + disty*disty;
+
+                if(dist >= nearest_dist)
+                    continue;
+
+                if(PointSide(x2, y2, x0, y0, x1,y1) != 1)
+                    continue;
+
+                int ok =1;
+
+                x1 += distx * 1e-4f;
+                x2 -= distx * 1e-4f;
+                y1 += disty * 1e-4f;
+                y2 -= disty * 1e-4f;
+
+                for(unsigned f = 0; f < sect->npoints; ++f)
+                {
+                    if(IntersectLineSegments(x1, y1, x2, y2, vert[f].x, vert[f].y, vert[f+1].x, vert[f+1].y))
+                    {
+                        ok = 0;
+                        break;
+                    }
+                }
+
+                if(!ok)
+                    continue;
+
+                // Check whether this split would resolve the original problem
+                if(PointSide(x2, y2, vert[d].x, vert[d].y, x1, y1) == 1)
+                    dist += 1e6f;
+                if(dist >= nearest_dist)
+                    continue;
+
+                nearest_dist = dist;
+                nearest_point = n;
+            }
+
+            if(nearest_point == ~0u)
+            {
+                fprintf(stderr, " - ERROR: Could not find a vertex to pair with!\n");
+                SDL_Delay(200);
+                continue;
+            }
+
+            unsigned e = nearest_point;
+            fprintf(stderr, " and point %u - (%g-%g) as the far point.\n", e, vert[e].x, vert[e].y);
+
+            // Now that we have a chain: a b c d e f g h
+            // And we're supposed to split it at "c" and "e", the outcome should be two chains:
+            // c d e         (c)
+            // e f g h a b c (e)
+
+            struct vec2d* vert1 = malloc(sect->npoints * sizeof(*vert1));
+            struct vec2d* vert2 = malloc(sect->npoints * sizeof(*vert2));
+            signed char* neigh1 = malloc(sect->npoints * sizeof(*neigh1));
+            signed char* neigh2 = malloc(sect->npoints * sizeof(*neigh2));
+
+            // Create chan 1: from c to e.
+            unsigned chain1_length = 0;
+            for(unsigned n = 0; n < sect->npoints; ++n)
+            {
+                unsigned m = (c + n) % sect->npoints;
+                neigh1[chain1_length] = sect->neighbors[m];
+                vert1[chain1_length++] = sect->vertex[m];
+                if(m==e)
+                {
+                    vert1[chain1_length] = vert1[0];
+                    break;
+                }
+            }
+
+            neigh1[chain1_length-1] = NumSectors;
+
+            // Create chanin 2: from e to c.
+            unsigned chain2_length = 0;
+            for(unsigned n = 0; n < sect->npoints; ++n)
+            {
+                unsigned m = (e+n) % sect->npoints;
+                neigh2[chain2_length] = sect->neighbors[m];
+                vert2[chain2_length++] = sect->vertex[m];
+                if(m == c)
+                {
+                    vert2[chain2_length] = vert2[0];
+                    break;
+                }
+            }
+
+            neigh2[chain2_length-1] = a;
+
+            // Change sect into using chain1.
+            free(sect->vertex);
+            sect->vertex =  vert1;
+            free(sect->neighbors);
+            sect->neighbors = neigh1;
+            sect->npoints = chain1_length;
+
+            // Create another sector that uses chain2.
+            sectors = realloc(sectors, ++NumSectors * sizeof(*sectors));
+            sect = &sectors[a];
+            sectors[NumSectors-1] = (struct sector) { sect->floor, sect->ceil, vert2, chain2_length, neigh2 };
+
+            // The other sector may now have neighbors that think their neighbor is still the old sector.
+            // Rescan to fix it.
+            goto Rescan;
+        }
+    }
+
+    printf("%d sectors. \n", NumSectors);
 }
 
 #if !TextureMapping
@@ -1937,7 +2164,7 @@ static void DrawScreen()
                 }
                 else
                 {
-                    u0 = (tz1-org1.x) * 1023 / (org2.x - org1.x);
+                    u0 = (tz1-org1.y) * 1023 / (org2.y - org1.y);
                     u1 = (tz2-org1.y) * 1023 / (org2.y - org1.y);
                 }
 #endif
@@ -2057,10 +2284,11 @@ static void DrawScreen()
 #if LightMapping
                     unsigned lu = ((unsigned)((mapx - bounding_min.x) * 1024 / (bounding_max.x - bounding_min.x))) %1024;
                     unsigned lv = ((unsigned)((mapz - bounding_min.y) * 1024 / (bounding_max.y - bounding_min.y))) %1024;
-                    int pel = ApplyLight(txt->texture[txtz%1024][txtx%1024], txt->lightmap[lu][lv]);
+                    int pel = ApplyLight(txt->texture[txtx%1024][txtz%1024], txt->lightmap[lu][lv]);
 #else
                     int pel = txt->texture[txtz%1024][txtx%1024];
 #endif
+                ((int*)surface->pixels)[y*W2+x] = pel;
                 }
 #else
                 vline(x, ytop[x], cya - 1, 0x111111, 0x222222, 0x111111);
@@ -2069,7 +2297,7 @@ static void DrawScreen()
 
 #if VisibilityTracking
                 {
-                    unsigned n = NumSectors;
+                    unsigned n = NumVisibleSectors;
                     if(ybottom[x] >= (cyb+1))
                     {
                         float FloorXbegin;
@@ -2094,18 +2322,18 @@ static void DrawScreen()
                         CellingFloorScreenCoordinatesToMapCoordinates(yceil, x, ytop[x], CeilXend, CeilZend);
                         CellingFloorScreenCoordinatesToMapCoordinates(yceil, x, cya-1, CeilXbegin, CeilZbegin);
 
-                        VisibleFloorBegins[n][x] = (struct vec2d){CeilXbegin, CeilZbegin};
-                        VisibleFloorEnds[n][x] = (struct vec2d){CeilXend, CeilZend};
-                        VisibleFloors[n][x] = 1;
+                        VisibleCeilBegins[n][x] = (struct vec2d){CeilXbegin, CeilZbegin};
+                        VisibleCeilEnds[n][x] = (struct vec2d){CeilXend, CeilZend};
+                        VisibleCeils[n][x] = 1;
                     }
                 }
 #endif
                 if (neighbor >= 0)
                 {
                     int nya = Scaler_Next(&nya_int);
-                    int cnya = clamp(nya, ytop[x], ybottom[x]);
-
                     int nyb = Scaler_Next(&nyb_int);
+
+                    int cnya = clamp(nya, ytop[x], ybottom[x]);
                     int cnyb = clamp(nyb, ytop[x], ybottom[x]);
 #if TextureMapping
                     vline2(x, cya, cnya - 1, (struct Scaler) Scaler_Init(ya, cya, yb, 0, 1023), txtx, &sect->uppertextures[s]);
@@ -2121,9 +2349,9 @@ static void DrawScreen()
 #endif
                     ytop[x] = clamp(max(cya, cnya), ytop[x], H - 1);
 #if TextureMapping
-                    vline2(x, cnyb+1, cnyb, (struct Scaler) Scaler_Init(ya, cnyb+1, yb, 0, 1023), txtx, &sect->lowertextures[s]);
+                    vline2(x, cnyb+1, cyb, (struct Scaler) Scaler_Init(ya, cnyb+1, yb, 0, 1023), txtx, &sect->lowertextures[s]);
 #else
-                    vline(x, cnyb + 1, cyb, 0, x == x1 || x == x2 ? 0 : r1, 0);
+                    vline(x, cnyb + 1, cyb, 0, x == x1 || x == x2 ? 0 : r2, 0);
 #endif
                     ybottom[x] = clamp(min(cyb, cnyb), 0, ybottom[x]);
                 }
@@ -2152,7 +2380,7 @@ static void DrawScreen()
         }
         ++renderedsectors[now.sectorno];
 #if VisibilityTracking
-        NumSectors += 1;
+        NumVisibleSectors += 1;
 #endif
     }
     SDL_UnlockSurface(surface);
