@@ -19,7 +19,7 @@
 
 #define TextureMapping      1
 #define DepthShadding       0
-#define LightMapping        0
+#define LightMapping        1
 #define VisibilityTracking   1
 #define SplitScreen         0
 
@@ -724,7 +724,7 @@ static void DiffuseLightCalculation(struct vec3d normal, struct vec3d tangent, s
             towards.z *= invlen;
 
             float cosine = vdot3(perturbed_normal.x, perturbed_normal.y, perturbed_normal.z, towards.x, towards.y, towards.z);
-            float power = cosine / (1.f + HAVE_POWF(len / fade_distance_diffuse, 2.0f));
+            float power = cosine / (1.f + powf(len / fade_distance_diffuse, 2.0f));
             power /= (float) narealightcomponents;
             if (power > 1e-7f)
             {
@@ -832,7 +832,7 @@ static void End_Diffuse(struct TextureSet* set)
 # include <omp.h>
 
 #define OMP_SCALER_LOOP_BEGIN(a, b, c, d, e, f) do { \
-    int this_thread = omp_get_thead_num(), num_threads = omp_get_num_threads(); \
+    int this_thread = omp_get_thread_num(), num_threads = omp_get_num_threads(); \
     int my_start = (this_thread) * ((c) - (a)) / num_threads + (a); \
     int my_end = (this_thread + 1) * ((c) - (a)) / num_threads + (a); \
     struct Scaler e##int = Scaler_Init(a, my_start, (c)-1, (d) * 32768, (f) * 32768); \

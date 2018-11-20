@@ -6,7 +6,7 @@
         {
             "label": "build",
             "type": "shell",
-            "command": "clang \"engine.c\" -I/usr/local/include -L/usr/local/lib -F./frameworks -framework SDL2 -o build/engine -O0 -g",
+            "command": "clang -Xpreprocessor -fopenmp -lomp \"engine.c\" -I/usr/local/include -L/usr/local/lib -F./frameworks -framework SDL2 -o build/engine -O0 -g",
             "group": {
                 "kind": "build",
                 "isDefault": true
